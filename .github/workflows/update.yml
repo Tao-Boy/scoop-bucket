@@ -1,0 +1,58 @@
+name: Update Scoop manifests
+
+on:
+  schedule:
+    - cron: '23 1 * * *' # Daily at 01:23 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update.yml'
+      - 'scripts/update_pebrel.py'
+      - 'tests/test_update_pebrel.py'
+      - 'bucket/pebrel.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scoop-manifest-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Test the manifest updater
+        run: python -m unittest discover -s tests -v
+
+      - name: Check the latest official release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/update_pebrel.py
+
+      - name: Commit JSON changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- bucket/pebrel.json
+          if git diff --cached --quiet; then
+            echo "No manifest changes."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(bucket): update Pebrel release'
+          git push origin HEAD:main
